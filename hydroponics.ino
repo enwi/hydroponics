@@ -340,26 +340,24 @@ void updateDrainingInfo()
 
 void irrigate()
 {
+    updateIrrigationInfo();
     if (secondsPassed >= settings.irrigationDuration)
     {
         secondsPassed = 0;
         irrigating = false;
         disabledPump();
     }
-
-    updateIrrigationInfo();
 }
 
 void drain()
 {
+    updateDrainingInfo();
     if (secondsPassed >= settings.drainDuration)
     {
         secondsPassed = 0;
         irrigating = true;
         enabledPump();
     }
-
-    updateDrainingInfo();
 }
 
 void loop()
