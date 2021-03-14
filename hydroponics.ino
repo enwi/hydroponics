@@ -45,7 +45,7 @@ uint8_t lastSecond = 0;
 uint16_t secondsPassed = 0;
 
 // GUI
-int irrigationDurationNI, drainDurationNI, enableButton;
+int timestampNI, infoNI, irrigationDurationNI, drainDurationNI, enableButton;
 
 // Time update
 WiFiUDP ntpUDP;
@@ -188,6 +188,8 @@ void updateTestButton(Control*, int value)
 
 void setupGUI()
 {
+    timestampNI = ESPUI.label("Time", ControlColor::Turquoise, "Time is updating");
+    infoNI = ESPUI.label("Info", ControlColor::Turquoise, "Starting...");
     irrigationDurationNI = ESPUI.number(
         "Irrigation duration", updateIrrigationDuration, ControlColor::Peterriver, settings.irrigationDuration, 0, 255);
     drainDurationNI = ESPUI.number(
@@ -196,7 +198,7 @@ void setupGUI()
         "Irrigation enabled", updateEnableButton, ControlColor::Peterriver, settings.irrigationEnabled);
     ESPUI.button("Test pump", updateTestButton, ControlColor::Alizarin, "test");
 
-    ESPUI.begin("Irrigation controller");
+    ESPUI.begin("Hydroponics controller");
 }
 
 void setupOTA()
@@ -276,6 +278,8 @@ void setup()
     while (!connected)
     {
         connected = connectWiFi();
+        // handle wifi or whatever the esp is doing
+        yield();
     }
 
     // Setup DNS so we don't have to find and type the ip address
@@ -297,6 +301,67 @@ void setup()
     }
 }
 
+void logTime(const time_t currentTime, const uint8_t currentSecond)
+{
+    const uint8_t currentHour = hour(currentTime);
+
+    char timeStamp[10];
+    snprintf(timeStamp, 10, "%02d:%02d:%02d", currentHour, minute(currentTime), currentSecond);
+    Serial.printf("Current time: %s\r\n", timeStamp);
+
+    // Only update GUI if anyone is really looking at it
+    if (ESPUI.ws->count() > 0)
+    {
+        ESPUI.updateLabel(timestampNI, timeStamp);
+    }
+}
+
+void updateIrrigationInfo()
+{
+    // Only update GUI if anyone is really looking at it
+    if (ESPUI.ws->count() > 0)
+    {
+        char info[20];
+        snprintf(info, 20, "Irrigating for %ds", settings.irrigationDuration - secondsPassed);
+        ESPUI.updateLabel(infoNI, info);
+    }
+}
+
+void updateDrainingInfo()
+{
+    // Only update GUI if anyone is really looking at it
+    if (ESPUI.ws->count() > 0)
+    {
+        char info[20];
+        snprintf(info, 20, "Draining for %ds", settings.drainDuration - secondsPassed);
+        ESPUI.updateLabel(infoNI, info);
+    }
+}
+
+void irrigate()
+{
+    if (secondsPassed >= settings.irrigationDuration)
+    {
+        secondsPassed = 0;
+        irrigating = false;
+        disabledPump();
+    }
+
+    updateIrrigationInfo();
+}
+
+void drain()
+{
+    if (secondsPassed >= settings.drainDuration)
+    {
+        secondsPassed = 0;
+        irrigating = true;
+        enabledPump();
+    }
+
+    updateDrainingInfo();
+}
+
 void loop()
 {
     const time_t currentTime = now();
@@ -306,37 +371,28 @@ void loop()
     {
         lastSecond = currentSecond;
         ++secondsPassed;
-        const uint8_t currentHour = hour(currentTime);
-        Serial.printf("Current time: %d:%d:%d\r\n", currentHour, minute(currentTime), currentSecond);
+
+        logTime(currentTime, currentSecond);
 
         if (irrigating)
         {
-            if (secondsPassed >= settings.irrigationDuration)
-            {
-                secondsPassed = 0;
-                irrigating = false;
-                disabledPump();
-            }
+            irrigate();
         }
         else
         {
-            if (secondsPassed >= settings.drainDuration)
-            {
-                secondsPassed = 0;
-                irrigating = true;
-                enabledPump();
-            }
+            drain();
         }
+
+        // put your main code here, to run repeatedly:
+        timeClient.update(); // Handle NTP update
+        // handle dns
+        MDNS.update();
+        // handle OTA
+        ArduinoOTA.handle();
+        // Check wifi
+        connectWiFi();
     }
 
-    // put your main code here, to run repeatedly:
-    timeClient.update(); // Handle NTP update
-    // handle dns
-    MDNS.update();
-    // handle OTA
-    ArduinoOTA.handle();
-    // Check wifi
-    connectWiFi();
     // handle wifi or whatever the esp is doing
     yield();
 }
