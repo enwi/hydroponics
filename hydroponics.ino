@@ -250,6 +250,79 @@ void setupOTA()
     ArduinoOTA.begin();
 }
 
+void logTime(const time_t currentTime, const uint8_t currentSecond)
+{
+    const uint8_t currentHour = hour(currentTime);
+
+    char timeStamp[10];
+    snprintf(timeStamp, 10, "%02d:%02d:%02d", currentHour, minute(currentTime), currentSecond);
+    Serial.printf("Current time: %s\r\n", timeStamp);
+
+    // Only update GUI if anyone is really looking at it
+    if (ESPUI.ws->count() > 0)
+    {
+        ESPUI.updateLabel(timestampNI, timeStamp);
+    }
+}
+
+void updateIrrigationInfo()
+{
+    // Only update GUI if anyone is really looking at it
+    if (ESPUI.ws->count() > 0)
+    {
+        char info[20];
+        uint16_t secondsLeft = settings.irrigationDuration - secondsPassed;
+        snprintf(info, 20, "Irrigating for %d:%02d", secondsLeft / 60, secondsLeft % 60);
+        ESPUI.updateLabel(infoNI, info);
+    }
+}
+
+void updateDrainingInfo()
+{
+    // Only update GUI if anyone is really looking at it
+    if (ESPUI.ws->count() > 0)
+    {
+        char info[20];
+        uint16_t secondsLeft = settings.drainDuration - secondsPassed;
+        snprintf(info, 20, "Draining for %d:%02d", secondsLeft / 60, secondsLeft % 60);
+        ESPUI.updateLabel(infoNI, info);
+    }
+}
+
+void irrigate()
+{
+    updateIrrigationInfo();
+    if (secondsPassed >= settings.irrigationDuration)
+    {
+        secondsPassed = 0;
+        irrigating = false;
+        disabledPump();
+    }
+}
+
+void drain()
+{
+    updateDrainingInfo();
+    if (secondsPassed >= settings.drainDuration)
+    {
+        secondsPassed = 0;
+        irrigating = true;
+        enabledPump();
+    }
+}
+
+void updateOther()
+{
+    // handle NTP
+    timeClient.update();
+    // handle DNS
+    MDNS.update();
+    // handle OTA
+    ArduinoOTA.handle();
+    // check WiFi
+    connectWiFi();
+}
+
 void setup()
 {
     WiFi.hostname(hostname);
@@ -267,7 +340,7 @@ void setup()
     if (firstStart)
     {
         settings.irrigationDuration = 20; // 20 seconds
-        settings.drainDuration = 320; // 5 minutes
+        settings.drainDuration = 300; // 5 minutes
         settings.irrigationEnabled = false;
         storeSettings();
     }
@@ -301,65 +374,6 @@ void setup()
     }
 }
 
-void logTime(const time_t currentTime, const uint8_t currentSecond)
-{
-    const uint8_t currentHour = hour(currentTime);
-
-    char timeStamp[10];
-    snprintf(timeStamp, 10, "%02d:%02d:%02d", currentHour, minute(currentTime), currentSecond);
-    Serial.printf("Current time: %s\r\n", timeStamp);
-
-    // Only update GUI if anyone is really looking at it
-    if (ESPUI.ws->count() > 0)
-    {
-        ESPUI.updateLabel(timestampNI, timeStamp);
-    }
-}
-
-void updateIrrigationInfo()
-{
-    // Only update GUI if anyone is really looking at it
-    if (ESPUI.ws->count() > 0)
-    {
-        char info[20];
-        snprintf(info, 20, "Irrigating for %ds", settings.irrigationDuration - secondsPassed);
-        ESPUI.updateLabel(infoNI, info);
-    }
-}
-
-void updateDrainingInfo()
-{
-    // Only update GUI if anyone is really looking at it
-    if (ESPUI.ws->count() > 0)
-    {
-        char info[20];
-        snprintf(info, 20, "Draining for %ds", settings.drainDuration - secondsPassed);
-        ESPUI.updateLabel(infoNI, info);
-    }
-}
-
-void irrigate()
-{
-    updateIrrigationInfo();
-    if (secondsPassed >= settings.irrigationDuration)
-    {
-        secondsPassed = 0;
-        irrigating = false;
-        disabledPump();
-    }
-}
-
-void drain()
-{
-    updateDrainingInfo();
-    if (secondsPassed >= settings.drainDuration)
-    {
-        secondsPassed = 0;
-        irrigating = true;
-        enabledPump();
-    }
-}
-
 void loop()
 {
     const time_t currentTime = now();
@@ -381,14 +395,7 @@ void loop()
             drain();
         }
 
-        // put your main code here, to run repeatedly:
-        timeClient.update(); // Handle NTP update
-        // handle dns
-        MDNS.update();
-        // handle OTA
-        ArduinoOTA.handle();
-        // Check wifi
-        connectWiFi();
+        updateOther();
     }
 
     // handle wifi or whatever the esp is doing
